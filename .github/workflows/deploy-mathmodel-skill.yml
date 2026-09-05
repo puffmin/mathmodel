@@ -1,0 +1,73 @@
+name: Deploy mathmodel skill
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - mathmodel-skill-main.zip
+      - .github/workflows/deploy-mathmodel-skill.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Validate archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f mathmodel-skill-main.zip
+          unzip -tq mathmodel-skill-main.zip >/dev/null
+
+      - name: Extract skill into project-level Codex path
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .agents/skills/mathmodel-skill
+          mkdir -p .agents/skills/mathmodel-skill
+
+          tmp_dir="$(mktemp -d)"
+          unzip -q mathmodel-skill-main.zip -d "$tmp_dir"
+
+          if [ -d "$tmp_dir/mathmodel-skill-main" ]; then
+            src="$tmp_dir/mathmodel-skill-main"
+          else
+            entry_count="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')"
+            first_dir="$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d | head -n 1 || true)"
+            if [ "$entry_count" = "1" ] && [ -n "$first_dir" ]; then
+              src="$first_dir"
+            else
+              src="$tmp_dir"
+            fi
+          fi
+
+          cp -a "$src"/. .agents/skills/mathmodel-skill/
+          rm -rf .agents/skills/mathmodel-skill/.git
+
+          test -f .agents/skills/mathmodel-skill/SKILL.md
+
+      - name: Commit deployed skill
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .agents/skills/mathmodel-skill
+
+          if git diff --cached --quiet; then
+            echo "Skill is already deployed and up to date."
+            exit 0
+          fi
+
+          git commit -m "Deploy mathmodel skill from zip"
+          git push origin HEAD:main
